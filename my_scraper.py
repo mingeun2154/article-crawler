@@ -51,8 +51,10 @@ def to_file(title, body):
 ################################ main ################################
 
 # [patch] load module
+'''
 from importlib.machinery import SourceFileLoader
 article_chosun = SourceFileLoader("article", "/Users/mingeun/study/crawling/oreilly/article.py").load_module()
+'''
 
 article_links = {}
 # Feed에서 기사 목록 획득
