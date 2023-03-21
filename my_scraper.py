@@ -1,28 +1,33 @@
+#!/usr/bin/env python3
+"""
+Provide multi-threaded crawling API. 
+"""
 import time
-import math
 import xml.etree.ElementTree as ET
 import ssl
 import os
 import sys
 import threading
-
-from urllib.request import urlopen 
+from urllib.request import urlopen
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-from queue import Queue
-
+from queue import Queue, Empty
 '''
 조선일보 RSS entity
 <item>
     <title>
         제목
     </title>
-    <link>https://www.chosun.com/economy/stock-finance/2023/03/14/JZISPC4KEJFUBGIUD2OZRUK62U/</link>
-    <guid isPermaLink="true">https://www.chosun.com/economy/stock-finance/2023/03/14/JZISPC4KEJFUBGIUD2OZRUK62U/</guid>
+    <link>
+        https://www.chosun.com/economy/stock-finance/2023/03/14/JZISPC4KEJFUBGIUD2OZRUK62U/
+    </link>
+    <guid isPermaLink="true">
+        https://www.chosun.com/economy/stock-finance/2023/03/14/JZISPC4KEJFUBGIUD2OZRUK62U/
+    </guid>
     <dc:creator>
         <![CDATA[ 권순완 기자 ]]>
     </dc:creator>
@@ -38,26 +43,53 @@ item에서 <title>, <link>, <pubDate>, <creator> 를 가져온다
 
 ###################### global variables ######################
 ARTICLE_ARCHIVE_PATH = os.path.dirname(os.path.realpath(__file__)) + '/chosun-articles/'
+PERFORMANCE_REPORT_PATH = os.path.dirname(os.path.realpath(__file__)) + '/performance-report.txt'
 CHOSUN_RSS = 'https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml'
-NUMBER_OF_CRAWLER_THREAD = 2
-NUMBER_OF_DISK_WORKER_THREAD = 2
+NUMBER_OF_CRAWLER = 2
+NUMBER_OF_DISK_WORKER = 2
 INDEX_TITLE, INDEX_URL = 0, 1
 
-# prepare article archive
-def mkarch():
+
+def record_performance(current_time, number_of_articles, elapsed_time):
+    """
+    기사 수집 성능을 파일의 형태로 기록한다.
+    기록할 내용: crawler thread 수, disk worker 수, 수집한 기사 개수, 걸린 시간
+    """
+    file = None
+    if not os.path.exists(PERFORMANCE_REPORT_PATH):
+        file = open(PERFORMANCE_REPORT_PATH, 'w')
+        file.write('TEST_TIME NUMBER_OF_CRAWLER NUMBER_OF_DISK_WORKER NUMBER_OF_ARTICLES ELAPSED_TIME\n')
+    else:
+        file = open(PERFORMANCE_REPORT_PATH, 'a')
+
+    data = f'{current_time} {NUMBER_OF_CRAWLER} {NUMBER_OF_DISK_WORKER} {number_of_articles} {elapsed_time}\n'
+    file.write(data)
+    file.close()
+
+def get_formatted_time():
+    """
+    현재 시각을 "00:48" 형태의 문자열로 반환한다.
+    """
+    t = time.localtime()
+    ftime = time.strftime("%H:%M", t)
+    return ftime
+
+def make_archive():
+    """
+    Prepare article archive.
+    """
     print('make archive: %s' % ARTICLE_ARCHIVE_PATH)
     if not os.path.exists(ARTICLE_ARCHIVE_PATH):
-        try:
-            os.mkdir(ARTICLE_ARCHIVE_PATH)
-        except OSError as e:
-            print('[mkdir] ERROR')
-            exit()
+        os.mkdir(ARTICLE_ARCHIVE_PATH)
+    else:
+        old_articles = os.listdir(ARTICLE_ARCHIVE_PATH)
+        for old in old_articles:
+            os.remove(ARTICLE_ARCHIVE_PATH + old)
 
 
 def to_file(title, body):
-    with open (ARTICLE_ARCHIVE_PATH+title, 'w') as file:
+    with open (ARTICLE_ARCHIVE_PATH+title, 'w', encoding="utf-8") as file:
         file.write(body)
-
 
 
 def get_articles():
@@ -72,9 +104,9 @@ def get_articles():
             title, link = None, None
             # <item>
             for child in item:
-                if child.tag == 'title' and child.text != None:
+                if child.tag == 'title' and child.text is not None:
                     title = child.text
-                elif child.tag == 'link' and child.text != None:
+                elif child.tag == 'link' and child.text is not None:
                     link = child.text
             articles.append([title, link])
             # </item>
@@ -83,7 +115,7 @@ def get_articles():
 
 def print_progress(progress):
     print('\033[?25l')   # hide cursor
-    for t in range(1, NUMBER_OF_CRAWLER_THREAD+1):
+    for t in range(1, NUMBER_OF_CRAWLER+1):
         print('[thread%d] collecting... %0.2f' %(t, progress[t]))
     print('\033[?25h')   # show it back
 
@@ -96,9 +128,11 @@ def disk_worker(tnum, queue, working_crawler):
     working_crawler - If this queue and queue is empty, stop this thread.
     """
     while not working_crawler.empty():
-        while not queue.empty():
-            title, body = queue.get()
-            to_file(title,  body)
+        try:
+            title, body = queue.get(timeout=2) 
+            to_file(title + '.txt',  body)
+        except Empty:
+            continue
 
 
 def crawler(tnum, articles, start, end, progress, queue, working_crawler):
@@ -110,54 +144,59 @@ def crawler(tnum, articles, start, end, progress, queue, working_crawler):
     """
     count = 0
     working_crawler.put(tnum)
-    # prepare webdriver 
+    # prepare webdriver
     options = webdriver.ChromeOptions()
     options.add_argument('--headless')
     driver = webdriver.Chrome(options=options)
     for article in articles[start:end]:
         driver.get(article[INDEX_URL])
         try:
-            element = WebDriverWait(driver, 3)\
-                    .until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'section.article-body')))
+            WebDriverWait(driver, 3)\
+                    .until(\
+                    EC.presence_of_all_elements_located(\
+                    (By.CSS_SELECTOR, 'section.article-body')))
             body = driver.find_element(By.CSS_SELECTOR, 'section.article-body')
             body = body.text
             queue.put((article[INDEX_TITLE], body))
             count += 1
-            progress = (count/(end-start))*100
+            progress[tnum] = (count/(end-start))*100
         except TimeoutException:
             print('pass: %s' % article[INDEX_URL])
             continue
+    working_crawler.get()
     driver.close()
-    working_crawler.get() # Remain elements are not exactly match to working threads' tnum. Only the number of the elemnts is correct.
+    # Remain elements are not exactly match to working threads' tnum.
+    # Only the number of the elemnts is correct.
     print('thread%s finished. Collected %d articles' % (tnum, count))
-    
 
-def Main(): 
-    global NUMBER_OF_CRAWLER_THREAD
-    global NUMBER_OF_DISK_WORKER_THREAD
+
+def Main():
+    global NUMBER_OF_CRAWLER
+    global NUMBER_OF_DISK_WORKER
     # set the number of thread
     if len(sys.argv) != 1:
-        NUMBER_OF_CRAWLER_THREAD = int(sys.argv[1])
+        NUMBER_OF_CRAWLER = int(sys.argv[1])
     # get targets
     article_infos = get_articles()
     # cli info
+    """
     for article in article_infos:
         print(article[INDEX_TITLE] + ': ' + article[INDEX_URL])
     print()     # empty line
-    mkarch()
+    """
+    make_archive()
     print('collected {0} links.'.format(len(article_infos)))
 
     ################### multi threading code start ###################
     # calcuate the number of articles per thread to collect(read+write)
     TOTAL_COUNT = len(article_infos)
-    articles_per_thread = math.ceil(TOTAL_COUNT/NUMBER_OF_CRAWLER_THREAD)
     # create threads
     workers = []
-    workload = [0]*(NUMBER_OF_CRAWLER_THREAD+1)   # amount of article to be collected per one thread
-    progress = [0]*(NUMBER_OF_CRAWLER_THREAD+1)
-    quota = int(TOTAL_COUNT/NUMBER_OF_CRAWLER_THREAD)
-    rest = TOTAL_COUNT % NUMBER_OF_CRAWLER_THREAD
-    for t in range(1, NUMBER_OF_CRAWLER_THREAD+1):
+    workload = [0]*(NUMBER_OF_CRAWLER+1)   # amount of article to be collected per one thread
+    progress = [0]*(NUMBER_OF_CRAWLER+1)
+    quota = int(TOTAL_COUNT/NUMBER_OF_CRAWLER)
+    rest = TOTAL_COUNT % NUMBER_OF_CRAWLER
+    for t in range(1, NUMBER_OF_CRAWLER+1):
         workload[t] = quota
         if rest > 0:
             workload[t] += 1
@@ -168,7 +207,7 @@ def Main():
     # network worker
     start_t = time.time()
     print()     # empty line
-    for t in range(1, NUMBER_OF_CRAWLER_THREAD+1):
+    for t in range(1, NUMBER_OF_CRAWLER+1):
         print('thread%d - %d articles' %(t, workload[t]))
         start_idx = quota * (t-1) + 1  # start_idx
         end_idx = start_idx + quota  # end_idx
@@ -181,13 +220,13 @@ def Main():
             print('[ERROR] %s' % e)
     # disk worker
     disk_workers = []
-    for t in range(1, NUMBER_OF_DISK_WORKER_THREAD+1):
-        try: 
+    for t in range(1, NUMBER_OF_DISK_WORKER+1):
+        try:
             worker = threading.Thread(target=disk_worker, args=(t, queue, working_crawler))
             disk_workers.append(worker)
             worker.start()
         except Exception as e:
-            print('[ERROR] %s' % e)
+            print(f'[ERROR] {e}')
     # wait for workers
     for worker in workers:
         worker.join()
@@ -195,6 +234,11 @@ def Main():
         worker.join()
     end_t = time.time()
     print('\r%-30s %0.2fs' %('finished', end_t-start_t))
+
+    # record
+    saved_articles = os.listdir(ARTICLE_ARCHIVE_PATH)
+    current_time = get_formatted_time()
+    record_performance(current_time, len(saved_articles), end_t-start_t)
 
 if __name__ == '__main__':
     Main()
