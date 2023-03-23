@@ -8,6 +8,7 @@
 * [selenium, WebDriver 설치](https://mingeun2154.github.io/python/selenium/#selenium%EA%B3%BC-webdriver-%EC%84%A4%EC%B9%98)
 * `my_scraper` 실행
     ```shell
+    $ mkdir articles
     $ python my_scraper.py <실행하고싶은 쓰레드 개수(default=2)>
     ```
 * 성능 측정
