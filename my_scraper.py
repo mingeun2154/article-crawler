@@ -42,7 +42,7 @@ item에서 <title>, <link>, <pubDate>, <creator> 를 가져온다
 '''
 
 ###################### global variables ######################
-ARTICLE_ARCHIVE_PATH = os.path.dirname(os.path.realpath(__file__)) + '/chosun-articles/'
+ARTICLE_ARCHIVE_PATH = os.path.dirname(os.path.realpath(__file__)) + '/articles/chosun/'
 PERFORMANCE_REPORT_PATH = os.path.dirname(os.path.realpath(__file__)) + '/performance-report.txt'
 CHOSUN_RSS = 'https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml'
 NUMBER_OF_CRAWLER = 2
