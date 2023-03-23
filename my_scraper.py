@@ -151,7 +151,7 @@ def crawler(tnum, articles, start, end, progress, queue, working_crawler):
     for article in articles[start:end]:
         driver.get(article[INDEX_URL])
         try:
-            WebDriverWait(driver, 3)\
+            WebDriverWait(driver, 2)\
                     .until(\
                     EC.presence_of_all_elements_located(\
                     (By.CSS_SELECTOR, 'section.article-body')))
