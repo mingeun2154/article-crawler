@@ -1,5 +1,7 @@
 __pycache__/**
 .DS_Store
-chosun_articles/**
+articles/**
+performance-report.txt
 # 연습 파일
 scratch.py
+
