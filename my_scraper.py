@@ -87,8 +87,9 @@ def make_archive():
             os.remove(ARTICLE_ARCHIVE_PATH + old)
 
 
-def to_file(title, body):
-    with open (ARTICLE_ARCHIVE_PATH+title, 'w', encoding="utf-8") as file:
+def to_file(uid, title, body):
+    with open (ARTICLE_ARCHIVE_PATH+'chosun-'+uid+'.txt', 'w', encoding="utf-8") as file:
+        file.write(title+'\n')
         file.write(body)
 
 
@@ -129,8 +130,8 @@ def disk_worker(tnum, queue, working_crawler):
     """
     while not working_crawler.empty():
         try:
-            title, body = queue.get(timeout=2) 
-            to_file(title + '.txt',  body)
+            uid, title, body = queue.get(timeout=2) 
+            to_file(uid, title,  body)
         except Empty:
             continue
 
@@ -157,7 +158,8 @@ def crawler(tnum, articles, start, end, progress, queue, working_crawler):
                     (By.CSS_SELECTOR, 'section.article-body')))
             body = driver.find_element(By.CSS_SELECTOR, 'section.article-body')
             body = body.text
-            queue.put((article[INDEX_TITLE], body))
+            uid = article[INDEX_URL].split('/')[-2]
+            queue.put((uid, article[INDEX_TITLE], body))
             count += 1
             progress[tnum] = (count/(end-start))*100
         except TimeoutException:
